@@ -2,8 +2,8 @@ from typing import Literal
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from src.schemas.chat_state import ChatState
-from src.components.chat_node import chatbot
-from src.components.search_node import search
+from src.components.nodes.chat_node import chatbot
+from src.components.nodes.search_node import search
 from langgraph.graph import START, END
 from langgraph.checkpoint.memory import MemorySaver
 

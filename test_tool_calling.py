@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from src.components.search_tool import get_search_tools
+from src.components.tools.search_tool import get_search_tools
 
 load_dotenv()
 

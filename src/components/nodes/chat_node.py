@@ -2,7 +2,7 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from src.schemas.chat_state import ChatState
 from src.utils.config import get_llm
 from src.prompt.prompts import WEB_SEARCH_SYSTEM_PROMPT, IF_WEB_SEARCH_NEED_SYSTEM_PROMPT
-from src.components.search_tool import tavily_search
+from src.components.tools.search_tool import tavily_search
 
 
 def chatbot(state: ChatState) -> ChatState:

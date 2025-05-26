@@ -1,7 +1,7 @@
 import json
 from langchain_core.messages import ToolMessage, AIMessage
 from src.schemas.chat_state import ChatState
-from src.components.search_tool import tavily_search
+from src.components.tools.search_tool import tavily_search
 
 
 def search(state: ChatState) -> ChatState:
