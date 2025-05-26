@@ -1,0 +1,15 @@
+{
+    "dependencies": [
+        "langchain-community>=0.3.24",
+        "langchain-core>=0.3.60",
+        "langchain-openai>=0.3.17",
+        "langgraph>=0.4.5",
+        "langgraph-cli[inmem]>=0.2.10",
+        "pydantic>=2.11.4",
+        "python-dotenv>=1.1.0"
+    ],
+    "graphs": {
+        "chatbot": "./src/graphs/chat_graph.py:create_chat_graph"
+    },
+    "env": "./.env"
+}

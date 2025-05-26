@@ -1,0 +1,568 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# LangGraph 공식 가이드 - 2025년 최신 버전
+
+이 문서는 [LangGraph 공식 레퍼런스](mdc:https:/langchain-ai.github.io/langgraph/reference)를 기반으로 작성된 종합적인 개발 가이드입니다.
+
+## 📚 LangGraph 핵심 아키텍처
+
+### 1. 그래프 (Graphs)
+LangGraph의 메인 그래프 추상화와 사용법
+
+#### StateGraph - 상태 기반 그래프
+```python
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict
+
+class AgentState(TypedDict):
+    messages: list
+    current_step: str
+
+# 그래프 생성 및 컴파일
+graph = StateGraph(AgentState)
+graph.add_node("process", process_node)
+graph.add_edge(START, "process")
+graph.add_edge("process", END)
+compiled_graph = graph.compile()
+```
+
+#### MessageGraph - 메시지 패싱 그래프
+```python
+from langgraph.graph import MessageGraph
+
+# 메시지 기반 그래프
+message_graph = MessageGraph()
+message_graph.add_node("agent", agent_node)
+message_graph.add_node("tools", tools_node)
+message_graph.add_edge("agent", "tools")
+```
+
+### 2. Functional API
+함수형 프로그래밍 인터페이스로 그래프 정의
+
+```python
+from langgraph.pregel import Pregel
+
+# 함수형 스타일 그래프 정의
+def create_functional_workflow():
+    return Pregel(
+        nodes={
+            "input_processor": process_input,
+            "llm_caller": call_llm,
+            "output_formatter": format_output
+        },
+        edges={
+            "input_processor": "llm_caller",
+            "llm_caller": "output_formatter"
+        },
+        entry_point="input_processor"
+    )
+```
+
+### 3. Pregel 계산 모델
+Google Pregel에서 영감받은 분산 그래프 처리 모델
+
+```python
+# Pregel 패턴: vertex-centric 프로그래밍
+def vertex_computation(state: dict, incoming_messages: list) -> dict:
+    """각 정점에서 독립적으로 실행되는 계산"""
+    # 1. 들어오는 메시지 처리
+    processed_data = process_messages(incoming_messages)
+    
+    # 2. 현재 상태 업데이트
+    updated_state = update_vertex_state(state, processed_data)
+    
+    # 3. 다음 정점으로 메시지 전송
+    outgoing_messages = generate_messages(updated_state)
+    
+    return {
+        "state": updated_state,
+        "messages": outgoing_messages
+    }
+```
+
+### 4. Checkpointing - 상태 저장 및 복원
+그래프 실행 상태의 지속적 저장
+
+```python
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
+
+# SQLite 체크포인터
+sqlite_checkpointer = SqliteSaver.from_conn_string("checkpoints.db")
+
+# 메모리 체크포인터 (테스트용)
+memory_checkpointer = MemorySaver()
+
+# 체크포인팅이 활성화된 그래프
+compiled_graph = graph.compile(checkpointer=sqlite_checkpointer)
+
+# 스레드별 체크포인트 사용
+config = {"configurable": {"thread_id": "user-123"}}
+result = compiled_graph.invoke(initial_state, config=config)
+```
+
+### 5. Storage - 스토리지 백엔드 및 옵션
+다양한 스토리지 백엔드 지원
+
+```python
+from langgraph.store.memory import InMemoryStore
+from langgraph.store.sqlite import SqliteStore
+
+# 인메모리 스토리지
+memory_store = InMemoryStore()
+
+# SQLite 스토리지
+sqlite_store = SqliteStore.from_conn_string("storage.db")
+
+# 그래프에 스토리지 연결
+compiled_graph = graph.compile(store=sqlite_store)
+```
+
+### 6. Caching - 성능 최적화 캐싱
+캐싱 메커니즘으로 성능 향상
+
+```python
+from langgraph.cache import LRUCache, TTLCache
+
+# LRU 캐시 (최근 사용 기반)
+lru_cache = LRUCache(max_size=1000)
+
+# TTL 캐시 (시간 기반 만료)
+ttl_cache = TTLCache(default_ttl=3600)  # 1시간
+
+# 캐시가 활성화된 그래프
+compiled_graph = graph.compile(cache=lru_cache)
+```
+
+### 7. Types - 타입 정의
+그래프 컴포넌트의 타입 안전성
+
+```python
+from typing import TypedDict, Annotated, Optional
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+
+class ComprehensiveState(TypedDict):
+    # 메시지는 자동으로 병합됨
+    messages: Annotated[list[BaseMessage], add_messages]
+    
+    # 현재 처리 단계
+    current_step: str
+    
+    # 선택적 도구 결과
+    tool_results: Optional[dict]
+    
+    # 반복 카운터
+    iteration_count: int
+    
+    # 메타데이터
+    metadata: dict
+```
+
+### 8. Config - 설정 옵션
+그래프 실행 설정 관리
+
+```python
+from langgraph.types import RunnableConfig
+
+# 실행 설정 정의
+config = RunnableConfig(
+    configurable={
+        "thread_id": "conversation-123",
+        "checkpoint_ns": "default",
+        "model_name": "gpt-4",
+        "temperature": 0.7
+    },
+    recursion_limit=25,
+    run_name="customer_support_session"
+)
+
+# 설정과 함께 그래프 실행
+result = compiled_graph.invoke(initial_state, config=config)
+```
+
+### 9. Errors - 에러 타입 및 처리
+에러 처리 전략
+
+```python
+from langgraph.errors import GraphRecursionError, InvalidUpdateError
+
+def safe_node_execution(func):
+    """안전한 노드 실행 래퍼"""
+    def wrapper(state):
+        try:
+            return func(state)
+        except GraphRecursionError:
+            # 재귀 한계 초과
+            return {"error": "recursion_limit_exceeded", **state}
+        except InvalidUpdateError:
+            # 잘못된 상태 업데이트
+            return {"error": "invalid_state_update", **state}
+        except Exception as e:
+            # 일반적인 오류
+            return {"error": str(e), **state}
+    return wrapper
+```
+
+### 10. Constants - 글로벌 상수
+시스템 전반의 상수값
+
+```python
+from langgraph.constants import START, END
+
+# 그래프 시작과 끝 노드 사용
+graph.add_edge(START, "first_node")
+graph.add_edge("last_node", END)
+```
+
+### 11. Channels - 메시지 패싱 및 채널
+노드 간 통신 채널
+
+```python
+from langgraph.channels import LastValue, Topic, BinaryOperatorAggregate
+
+# 마지막 값 보존 채널
+state_channel = LastValue(dict)
+
+# 토픽 기반 채널
+message_channel = Topic(str)
+
+# 집계 연산 채널
+sum_channel = BinaryOperatorAggregate(int, operator.add)
+```
+
+## 🔧 Prebuilt 컴포넌트
+
+### 1. Agents - 내장 에이전트 패턴
+
+#### React 에이전트
+```python
+from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
+from langchain_community.tools import DuckDuckGoSearchRun
+
+# React 에이전트 생성
+llm = ChatOpenAI(model="gpt-4")
+tools = [DuckDuckGoSearchRun()]
+react_agent = create_react_agent(llm, tools)
+
+# 에이전트 실행
+result = react_agent.invoke({"messages": [("user", "파이썬에 대해 검색해줘")]})
+```
+
+#### 도구 호출 에이전트
+```python
+from langgraph.prebuilt import create_tool_calling_agent
+
+# 도구 호출 에이전트
+tool_agent = create_tool_calling_agent(
+    model=llm,
+    tools=tools,
+    system_prompt="당신은 도움이 되는 AI 어시스턴트입니다."
+)
+```
+
+### 2. Supervisor - 오케스트레이션 및 위임
+멀티 에이전트 시스템의 조정자
+
+```python
+from langgraph.prebuilt import create_supervisor_agent
+
+# 워커 에이전트들 정의
+workers = {
+    "researcher": research_agent,
+    "writer": writing_agent,
+    "reviewer": review_agent
+}
+
+# 슈퍼바이저 생성
+supervisor = create_supervisor_agent(
+    llm=llm,
+    workers=list(workers.keys()),
+    system_prompt="""작업을 적절한 워커에게 할당하세요.
+    - researcher: 정보 수집 작업
+    - writer: 글쓰기 작업  
+    - reviewer: 검토 작업"""
+)
+```
+
+### 3. Swarm - 멀티 에이전트 협업
+에이전트 간 동적 협업 시스템
+
+```python
+from langgraph.prebuilt import create_agent_swarm
+
+# 에이전트 스웜 생성
+agent_swarm = create_agent_swarm(
+    agents={
+        "data_analyst": data_analysis_agent,
+        "ml_engineer": ml_engineering_agent,
+        "product_manager": product_management_agent
+    },
+    coordinator_llm=llm,
+    max_rounds=10
+)
+
+# 스웜 실행
+swarm_result = agent_swarm.invoke({
+    "task": "새로운 ML 모델 개발 프로젝트 계획 수립",
+    "context": "고객 이탈 예측 모델"
+})
+```
+
+### 4. MCP Adapters - 외부 시스템 통합
+Model Context Protocol을 통한 시스템 연결
+
+```python
+from langgraph.prebuilt.mcp import create_mcp_adapter
+
+# MCP 어댑터 생성
+mcp_adapter = create_mcp_adapter(
+    server_url="https://api.example.com/mcp",
+    auth_config={
+        "type": "bearer",
+        "token": "your-auth-token"
+    },
+    timeout=30
+)
+
+# 외부 시스템과 통합된 그래프
+integrated_graph = graph.compile(adapters=[mcp_adapter])
+```
+
+## 🚀 LangGraph Platform
+
+### 1. CLI - 커맨드라인 인터페이스
+애플리케이션 빌드 및 배포
+
+```bash
+# 새 프로젝트 초기화
+langgraph init my-project
+
+# 개발 서버 실행
+langgraph dev
+
+# 배포 준비
+langgraph build
+
+# Platform에 배포
+langgraph deploy --name my-app
+```
+
+### 2. Server API - REST API
+LangGraph Server용 REST API
+
+```python
+from langgraph.api import GraphAPI
+
+# API 서버 설정
+api_server = GraphAPI(
+    graphs={
+        "main": compiled_graph,
+        "chat": chat_graph
+    },
+    host="0.0.0.0",
+    port=8000,
+    cors_origins=["http://localhost:3000"]
+)
+
+# 서버 시작
+api_server.run()
+```
+
+### 3. SDK (Python) - Python SDK
+LangGraph Server 인스턴스와 상호작용
+
+```python
+from langgraph_sdk import get_client
+
+# 클라이언트 생성
+client = get_client(url="http://localhost:8000")
+
+# 스트리밍 실행
+for chunk in client.runs.stream(
+    graph_id="main",
+    input={"messages": [{"role": "user", "content": "안녕하세요"}]},
+    config={"configurable": {"thread_id": "user-123"}}
+):
+    print(chunk)
+
+# 비동기 실행
+run = client.runs.create(
+    graph_id="main",
+    input=input_data,
+    config=config
+)
+
+# 실행 상태 확인
+status = client.runs.get(run_id=run.id)
+```
+
+### 4. RemoteGraph - 원격 그래프 연결
+원격 LangGraph Server에 연결하는 Pregel 추상화
+
+```python
+from langgraph.pregel.remote import RemoteGraph
+
+# 원격 그래프 생성
+remote_graph = RemoteGraph(
+    url="https://my-app.langgraph.app",
+    graph_id="main",
+    auth_token="your-token"
+)
+
+# 로컬 그래프처럼 사용
+result = remote_graph.invoke(
+    input={"messages": [{"role": "user", "content": "질문"}]},
+    config={"configurable": {"thread_id": "session-456"}}
+)
+
+# 스트리밍도 지원
+for chunk in remote_graph.stream(input, config):
+    print(chunk)
+```
+
+### 5. Environment Variables - 환경변수
+Platform 배포시 지원되는 설정 변수
+
+```bash
+# 필수 환경변수
+OPENAI_API_KEY=your-openai-key
+LANGCHAIN_API_KEY=your-langchain-key
+
+# LangSmith 추적
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=my-langgraph-project
+
+# Platform 설정
+LANGGRAPH_CLOUD_API_KEY=your-platform-key
+LANGGRAPH_CLOUD_PROJECT_ID=your-project-id
+
+# 성능 튜닝
+LANGGRAPH_MAX_CONCURRENCY=10
+LANGGRAPH_TIMEOUT=300
+LANGGRAPH_MEMORY_LIMIT=1024
+```
+
+## 📁 프로젝트 구조 권장사항
+
+현재 프로젝트를 기준으로 한 최적 구조:
+
+```
+langgraph-playground/
+├── [langgraph.json](mdc:langgraph.json)              # LangGraph 설정
+├── [pyproject.toml](mdc:pyproject.toml)              # 프로젝트 메타데이터  
+├── [requirements.txt](mdc:requirements.txt)           # 의존성
+├── .env                                     # 환경변수
+├── [src/](mdc:src)                                   # 소스 코드
+│   ├── [main.py](mdc:src/main.py)                    # 애플리케이션 진입점
+│   ├── [graphs/](mdc:src/graphs)                     # 그래프 정의들
+│   │   ├── [chat_graph.py](mdc:src/graphs/chat_graph.py)     # 채팅 그래프
+│   │   └── workflow_graph.py           # 워크플로우 그래프
+│   ├── [components/](mdc:src/components)             # 재사용 컴포넌트
+│   │   ├── nodes/                      # 커스텀 노드
+│   │   ├── tools/                      # 도구 정의
+│   │   └── agents/                     # 에이전트
+│   ├── [schemas/](mdc:src/schemas)                   # 타입 정의
+│   │   ├── agent_state.py             # 상태 스키마
+│   │   └── messages.py                # 메시지 타입
+│   └── [utils/](mdc:src/utils)                       # 유틸리티
+├── tests/                              # 테스트 코드
+└── [README.md](mdc:README.md)                        # 문서
+```
+
+## 🎯 핵심 베스트 프랙티스
+
+### 1. 상태 관리
+```python
+# 명확한 상태 스키마 정의
+class ProjectState(TypedDict):
+    # 메시지는 자동 병합
+    messages: Annotated[list[BaseMessage], add_messages]
+    
+    # 현재 단계 추적
+    current_step: str
+    
+    # 반복 제한
+    iteration_count: int
+    
+    # 오류 처리
+    errors: list[str]
+    
+    # 메타데이터
+    metadata: dict
+```
+
+### 2. 조건부 라우팅
+```python
+def smart_router(state: ProjectState) -> str:
+    """스마트 라우팅 로직"""
+    if state.get("errors"):
+        return "error_handler"
+    elif state["iteration_count"] > 10:
+        return "max_iterations"
+    elif "tool_calls" in state.get("metadata", {}):
+        return "tool_executor"
+    else:
+        return "continue_processing"
+```
+
+### 3. 오류 처리
+```python
+def robust_node(state: ProjectState) -> ProjectState:
+    """견고한 노드 구현"""
+    try:
+        # 실제 작업 수행
+        result = perform_complex_operation(state)
+        return {**state, **result}
+    
+    except Exception as e:
+        # 오류 로깅
+        logger.error(f"Node execution failed: {e}")
+        
+        # 복구 가능한 상태로 반환
+        return {
+            **state,
+            "errors": state.get("errors", []) + [str(e)],
+            "current_step": "error_recovery"
+        }
+```
+
+### 4. 스트리밍 및 실시간 처리
+```python
+# 스트리밍 실행
+async def stream_processing():
+    async for chunk in compiled_graph.astream(initial_state):
+        # 실시간 업데이트 처리
+        await process_chunk(chunk)
+        
+        # 클라이언트에 전송
+        await send_to_client(chunk)
+```
+
+### 5. 테스팅 전략
+```python
+# 그래프 통합 테스트
+def test_complete_workflow():
+    """전체 워크플로우 테스트"""
+    test_input = {
+        "messages": [{"role": "user", "content": "테스트 메시지"}],
+        "current_step": "start",
+        "iteration_count": 0,
+        "errors": [],
+        "metadata": {}
+    }
+    
+    result = compiled_graph.invoke(test_input)
+    
+    # 결과 검증
+    assert result["current_step"] == "completed"
+    assert len(result["errors"]) == 0
+    assert result["iteration_count"] > 0
+```
+
+이 가이드는 LangGraph 공식 레퍼런스의 모든 핵심 컴포넌트를 다루며, 실제 프로덕션 환경에서 견고하고 확장 가능한 애플리케이션을 구축하는 데 필요한 모든 요소를 제공합니다.
